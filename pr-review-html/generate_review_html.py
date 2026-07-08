@@ -15,13 +15,13 @@ Usage:
 
 review.json schema:
 {
-  "pr":   {"number": 114281, "title": "...", "subtitle": "Rodrigo Balan · 5 files",
+  "pr":   {"number": 114281, "title": "...", "subtitle": "Jane Doe · 5 files",
             "counts": "1 HIGH, 2 MEDIUM, 1 NIT"},
   "overview_html": "<div class='intro'>...</div>",   # free HTML for the ★ Overview page
   "groups": ["★ Context", "Consumers", ...],         # sidebar group order == reading order
   "entries": [                                        # WITHIN a group, array order == reading order
     {
-      "path": "armis/.../graph.py",      # full repo path; matched against the diff
+      "path": "src/graph.py",             # full repo path; matched against the diff
       "name": "graph.py",                # OPTIONAL sidebar label; defaults to the path basename
       "group": "Consumers",              # must be one of "groups"
       "badge": "block|high|med|low|good|new",   # OPTIONAL; defaults to the worst severity among comments (or "good")
