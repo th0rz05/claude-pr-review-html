@@ -104,6 +104,21 @@ def split_diff(raw):
     return out
 
 
+def _file_status(chunk):
+    """Derive the file's status from the git diff header: added / deleted /
+    renamed / modified. "" when the file isn't in the diff at all."""
+    if not chunk:
+        return ""
+    head = "\n".join(chunk.split("\n")[:8])
+    if "new file mode" in head:
+        return "added"
+    if "deleted file mode" in head:
+        return "deleted"
+    if "rename from" in head or "rename to" in head:
+        return "renamed"
+    return "modified"
+
+
 def _counts(diff):
     """(additions, deletions) for a file diff, ignoring the +++/--- headers."""
     add = dele = 0
@@ -248,6 +263,7 @@ def build(diff_path, review_path, out_path):
         if e.get("badge") not in SEV:
             sevs = [c[0] for c in e["comments"] if c and c[0] in SEV]
             e["badge"] = min(sevs, key=lambda s: sev_rank.get(s, 99)) if sevs else "good"
+        e["status"] = _file_status(d)
         if d:
             a, r = _counts(d)
             e["add"], e["del"] = a, r
@@ -468,6 +484,11 @@ h2.filetitle{color:var(--fg);font-family:var(--font-mono);font-size:1.08em;word-
 .comment.plausible::before{opacity:.55}
 .conf-tag{display:inline-flex;align-items:center;font-size:.6em;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
   font-family:var(--font-mono);color:var(--fg-3);border:1px dashed var(--line-3);border-radius:5px;padding:1px 6px;flex-shrink:0}
+.fstatus{display:inline-block;font-size:.6em;font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-family:var(--font-mono);
+  padding:1px 6px;border-radius:5px;border:1px solid transparent;vertical-align:middle;flex-shrink:0}
+.fs-added{color:var(--add-fg);background:color-mix(in srgb,var(--sev-good) 14%,transparent);border-color:color-mix(in srgb,var(--sev-good) 38%,transparent)}
+.fs-deleted{color:var(--del-fg);background:color-mix(in srgb,var(--sev-block) 12%,transparent);border-color:color-mix(in srgb,var(--sev-block) 38%,transparent)}
+.fs-renamed{color:var(--sev-low);background:color-mix(in srgb,var(--sev-low) 12%,transparent);border-color:color-mix(in srgb,var(--sev-low) 38%,transparent)}
 .comment.done .chead b, .comment.done .chead .htext{text-decoration:line-through;text-decoration-color:var(--fg-3)}
 .comment .chead{font-weight:680;font-size:.9em;margin-bottom:7px;display:flex;align-items:center;gap:10px;color:var(--fg)}
 .comment .chead .htext{flex:1;min-width:0}
@@ -702,6 +723,8 @@ function parseComment(cm){let gh=null,line=null,conf=null;
   });
   return {sev:cm[0],head:cm[1],body:cm[2],gh,line,conf};}
 const confTag=c=>c==='plausible'?' <span class="conf-tag" title="looks real but was not fully verified">plausible</span>':'';
+const STATUSL={added:'added',deleted:'deleted',renamed:'renamed'};
+const statusTag=s=>STATUSL[s]?` <span class="fstatus fs-${s}">${STATUSL[s]}</span>`:'';
 
 /* ---- theme ---- */
 const THKEY='pr_theme';
@@ -744,7 +767,7 @@ function sidebar(){
       h+=`<div class="file-item ${state.id===f.path?'active':''}" data-id="${f.path}">
         <span class="seq">${f.seq}</span>
         <div class="fmeta"><div class="fname">${f.name}</div>${f.walk?`<div class="fwalk">${f.walk}</div>`:''}</div>
-        <div class="fright"><span class="badge ${SEV[f.badge]||'b-good'}">${SEVL[f.badge]||'OK'}</span>${fileDone(f)?'<span class="done-tick" title="all findings resolved">✓</span>':counts(f)}</div>
+        <div class="fright">${statusTag(f.status)}<span class="badge ${SEV[f.badge]||'b-good'}">${SEVL[f.badge]||'OK'}</span>${fileDone(f)?'<span class="done-tick" title="all findings resolved">✓</span>':counts(f)}</div>
       </div>`;
     });
   });
@@ -838,7 +861,7 @@ function render(){
   const f=FILES.find(x=>x.path===state.id);
   const i=ORDER.indexOf(state.id);
   const shownCount=shownComments(f).length;
-  let h=`<div class="filehead"><h2 class="filetitle">${f.name} <span class="badge ${SEV[f.badge]||'b-good'}">${SEVL[f.badge]||'OK'}</span></h2>
+  let h=`<div class="filehead"><h2 class="filetitle">${f.name} <span class="badge ${SEV[f.badge]||'b-good'}">${SEVL[f.badge]||'OK'}</span>${statusTag(f.status)}</h2>
     <div class="navbtns">
       <div class="navbtn" ${i<=1?'disabled':''} onclick="step(-1)">← Prev</div>
       <div class="navbtn" ${i>=ORDER.length-1?'disabled':''} onclick="step(1)">Next →</div>
