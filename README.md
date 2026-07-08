@@ -36,17 +36,24 @@ list with no story. This skill instead gives you **one HTML file** that:
   reading path on the overview.
 - **Three tabs per file:** Context (plain-language), Review (severity-rated
   comments), Full diff (two-gutter, GitHub-style colours, `<mark>` word highlights).
+- **Inline diff comments + jump:** findings anchor to a line, render inline in the
+  diff GitHub-style, and get a "→ line N" jump from the Review tab.
+- **Seam map:** a panel of each changed symbol and where it lives
+  (producer / model / reader / tests) — any side that *wasn't* updated is flagged
+  red. This is the highest-value class of bug, surfaced at a glance.
+- **Blast radius:** files that reference a changed symbol but aren't in the PR —
+  candidate missed seams.
+- **Review progress:** tick findings off as you resolve them; a header progress bar
+  and per-file checkmarks track it, persisted across reopens.
 - **Overview dashboard:** stat grid, before→after flow, one-line verdict.
 - **Light & dark themes**, toggled in the header (remembered across visits).
-- **Keyboard-driven:** `j`/`k` or `←`/`→` navigate, `c`/`r`/`d` switch tabs, `/`
-  filter, `t` theme.
-- **Copy-ready comments:** each finding can carry a GitHub-ready draft and copies
-  with its file reference attached.
-- **Zero dependencies:** pure-Python generator, system fonts, one output file.
+- **Syntax-highlighted, collapsible diffs**, keyboard-driven (`j`/`k` navigate,
+  `c`/`r`/`d` tabs, `/` filter, `t` theme), copy-ready comments with GitHub drafts.
+- **Zero dependencies:** pure-Python generator, system fonts, one offline file.
 
-|                     Review tab                     |               Full diff (light theme)               |
-| :------------------------------------------------: | :-------------------------------------------------: |
-| ![Review](docs/screenshot-review.png)              | ![Diff](docs/screenshot-diff-light.png)             |
+|         Review tab (jump + resolve)         |        Full diff (inline comments)        |        Seam map & blast radius        |
+| :-----------------------------------------: | :---------------------------------------: | :-----------------------------------: |
+| ![Review](docs/screenshot-review.png)       | ![Diff](docs/screenshot-diff.png)         | ![Seam map](docs/screenshot-seam-map.png) |
 
 ## Install
 

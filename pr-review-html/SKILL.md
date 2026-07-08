@@ -68,6 +68,19 @@ one-line `walk` field saying *why it's read at this point*.
 - `name` and `badge` per entry are optional: the generator derives `name` from the
   path basename and `badge` from the worst-severity comment (fallback `good`), so
   they never render as `undefined`.
+- **Inline diff comments + jump**: a finding with a `line` anchor renders inline in
+  the Full-diff tab at that line (GitHub-style), and its Review entry gets a
+  "→ line N" button that jumps to and flashes it.
+- **Seam map** (optional `seams`): the overview renders a panel of each changed
+  symbol and its sites (producer/model/reader/tests); any not-updated side is
+  flagged red and, if it's a file in the review, is clickable.
+- **Blast radius** (optional `blast_radius`): the overview lists files that
+  reference a changed symbol but are absent from the PR — candidate missed seams.
+- **Review progress**: every finding has a "resolved" checkbox; the header shows a
+  progress bar and the sidebar marks fully-resolved files. State persists in
+  localStorage, so a reopened report remembers what you already cleared.
+- **Diff niceties**: lightweight offline syntax highlighting and collapsible hunks
+  (click a hunk header to fold it).
 
 Severities: `block` (BLOCKER), `high`, `med`, `low` (NIT), `good` (OK), `new`.
 
@@ -217,6 +230,15 @@ Write `/tmp/pr_${PR}_review.json` following the schema in
   Bodies may use `<code>`, `<b>`, `<br>`. Make the body explain *why* it's a
   problem and *what to do*, not just *what* — that's what makes the report worth
   more than GitHub's inline UI.
+- **Anchor findings to a line** whenever you can: append the NEW-file line number as
+  a trailing element of the comment array (after the optional GitHub draft). The
+  finding then renders inline in the diff and gets a "→ line N" jump — the single
+  biggest reading win, so do it for every finding that points at a concrete line.
+- Populate **`seams`** from the cross-file-seam lens (step 3, lens 2): one entry per
+  changed symbol, each site `{role, path, ok}` with `ok:false` for a side that was
+  NOT updated. This surfaces the highest-value class of bug at a glance.
+- Populate **`blast_radius`** from a repo-wide grep of each changed symbol: files
+  that reference it but are not in the PR — candidate missed seams.
 - Include a file absent from the diff when it is the cause of a bug OR the source
   of truth needed to understand a seam (give it a `note`; no diff needed — the
   generator handles it). This is how you show context files first.
