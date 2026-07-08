@@ -247,6 +247,12 @@ Write `/tmp/pr_${PR}_review.json` following the schema in
   NOT updated. This surfaces the highest-value class of bug at a glance.
 - Populate **`blast_radius`** from a repo-wide grep of each changed symbol: files
   that reference it but are not in the PR — candidate missed seams.
+- Set **`pr.repo`** (`owner/repo`, from the PR URL) and **`pr.ref`** (the head SHA —
+  `gh pr view $PR --json headRefOid`). This turns every file path into a link: seam
+  sites and blast-radius files that aren't in the diff open on GitHub (deep-linked to
+  the line when you give one), so the reviewer clicks straight to the evidence
+  instead of grepping by hand. Give seam sites a `line` and blast items a `{path,line}`
+  wherever you know the line.
 - Include a file absent from the diff when it is the cause of a bug OR the source
   of truth needed to understand a seam (give it a `note`; no diff needed — the
   generator handles it). This is how you show context files first.

@@ -40,9 +40,13 @@ list with no story. This skill instead gives you **one HTML file** that:
   diff GitHub-style, and get a "→ line N" jump from the Review tab.
 - **Seam map:** a panel of each changed symbol and where it lives
   (producer / model / reader / tests) — any side that *wasn't* updated is flagged
-  red. This is the highest-value class of bug, surfaced at a glance.
+  red. Every site is a link: files in the PR jump inside the report, the rest open
+  on GitHub (deep-linked to the line). The highest-value class of bug, one click away.
 - **Blast radius:** files that reference a changed symbol but aren't in the PR —
-  candidate missed seams.
+  candidate missed seams, each linking straight to GitHub.
+- **Links to the evidence, not by hand:** set `pr.repo` + `pr.ref` and every path
+  (seam sites, blast radius, per-file header, findings with a line) becomes a
+  GitHub deep-link, so you click through instead of grepping.
 - **Review progress:** tick findings off as you resolve them; a header progress bar
   and per-file checkmarks track it, persisted across reopens.
 - **Overview dashboard:** stat grid, before→after flow, one-line verdict.

@@ -16,20 +16,27 @@ Usage:
 review.json schema:
 {
   "pr":   {"number": 114281, "title": "...", "subtitle": "Jane Doe · 5 files",
-            "counts": "1 HIGH, 2 MEDIUM, 1 NIT"},
+            "counts": "1 HIGH, 2 MEDIUM, 1 NIT",
+            "repo": "owner/repo", "ref": "<head sha or branch>"},  # OPTIONAL: set both to
+            #   turn every file path (seam map, blast radius, per-file header, findings) into a
+            #   GitHub link — deep-linked to the line where one is known.
   "overview_html": "<div class='intro'>...</div>",   # free HTML for the ★ Overview page
   "groups": ["★ Context", "Consumers", ...],         # sidebar group order == reading order
-  "seams": [                                          # OPTIONAL — rendered as a "Seam map" on the overview
+  "seams": [                                          # OPTIONAL — rendered as a "Seam map" on the overview.
+                                                      # A site whose `path` is in the diff links inside the report;
+                                                      # otherwise it links to GitHub (needs pr.repo + pr.ref).
     {"symbol": "normalized_text",
      "sites": [                                       # each place the symbol lives; ok:false = a side NOT updated
-       {"role": "producer", "path": "src/graph/node.py", "ok": false, "note": "still writes raw_text"},
+       {"role": "producer", "path": "src/graph/node.py", "ok": false, "note": "still writes raw_text", "line": 47},
        {"role": "model",    "path": "src/graph/state.py", "ok": true},
        {"role": "reader",   "path": "src/graph/read.py",  "ok": true},
        {"role": "test",     "path": "tests/test_graph.py","ok": true}
      ]}
   ],
-  "blast_radius": [                                   # OPTIONAL — files that reference a changed symbol but are NOT in the diff
-    {"symbol": "classify", "files": ["src/api/routes.py", "src/workers/batch.py"]}
+  "blast_radius": [                                   # OPTIONAL — files that reference a changed symbol but are NOT in the diff.
+                                                      # `files` items may be "path" strings or {"path":..., "line":...};
+                                                      # they link to GitHub when pr.repo + pr.ref are set.
+    {"symbol": "classify", "files": ["src/api/routes.py", {"path": "src/workers/batch.py", "line": 88}]}
   ],
   "entries": [                                        # WITHIN a group, array order == reading order
     {
@@ -248,6 +255,8 @@ def build(diff_path, review_path, out_path):
         "overview": overview,
         "seams": review.get("seams", []),
         "blast": review.get("blast_radius", []),
+        "repo": pr.get("repo", ""),
+        "ref": pr.get("ref", ""),
         "reportKey": str(pr.get("number") or pr.get("title") or "pr"),
     }, ensure_ascii=False)
 
@@ -519,6 +528,15 @@ h3.sec{color:var(--fg);font-size:1.05em;margin:26px 0 4px;letter-spacing:-.01em}
 .seam-site.bad .role{color:var(--sev-block)}
 .blast{list-style:none;padding:0;margin:12px 0;max-width:920px;display:flex;flex-direction:column;gap:8px}
 .blast li{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-sm);padding:9px 14px;font-size:.85em;color:var(--fg-2);box-shadow:var(--shadow)}
+.blast a.blk{font-family:var(--font-mono);color:var(--link);text-decoration:none;border-bottom:1px solid transparent}
+.blast a.blk:hover{border-bottom-color:currentColor}
+.seam-site.lk{cursor:pointer;text-decoration:none;color:var(--fg-2)}
+.seam-site.lk:hover{border-color:var(--accent-line);color:var(--fg);transform:translateY(-1px)}
+.ext{font-size:.85em;opacity:.55}
+.lk:hover .ext,.pathlink:hover .ext{opacity:1;color:var(--accent-2)}
+.pathlink{color:inherit;text-decoration:none;border-bottom:1px solid transparent}
+.pathlink:hover{color:var(--accent-2);border-bottom-color:var(--accent-line)}
+a.jumpbtn.ghlink{text-decoration:none}
 
 .walk{list-style:none;padding:0;margin:16px 0;max-width:920px}
 .walk li{display:flex;gap:13px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);
@@ -616,6 +634,9 @@ const ORDER_SEV=['block','high','med','low','good','new'];
 const D=__PAYLOAD__;
 const FILES=D.entries, GROUPS=D.groups, OVERVIEW=D.overview, SEAMS=D.seams||[], BLAST=D.blast||[];
 const PATHS=new Set(FILES.map(f=>f.path));
+const REPO=D.repo||'', REF=D.ref||'';
+const GH=(path,line)=>(REPO&&REF&&path)?`https://github.com/${REPO}/blob/${REF}/${path}`+(line?`#L${line}`:''):null;
+const EXT=' <span class="ext">↗</span>';
 const ORDER=['__overview__',...FILES.map(f=>f.path)];
 let state={id:'__overview__',tab:'context',q:'',hidden:{}};
 let booted=false;
@@ -716,12 +737,17 @@ function hl(code){let out='',last=0,m;TOK.lastIndex=0;
 /* ---- content ---- */
 function seamHtml(){
   if(!SEAMS.length)return'';
-  let h=`<h3 class="sec">Seam map</h3><p class="seam-note">Each changed symbol and where it lives — producer, model, reader, tests. A <b>red</b> site is a place that was <b>not</b> updated (the classic silent bug).</p><div class="seams">`;
+  let h=`<h3 class="sec">Seam map</h3><p class="seam-note">Each changed symbol and where it lives — producer, model, reader, tests. A <b>red</b> site is a place that was <b>not</b> updated (the classic silent bug). Click a site to jump to it — in this report, or on GitHub.</p><div class="seams">`;
   SEAMS.forEach(s=>{
     h+=`<div class="seam"><div class="seam-sym"><code>${s.symbol||''}</code></div><div class="seam-sites">`;
     (s.sites||[]).forEach(si=>{
-      const bad=si.ok===false;const clickable=si.path&&PATHS.has(si.path);
-      h+=`<span class="seam-site ${bad?'bad':'ok'}" ${clickable?`data-path="${si.path}"`:''}><span class="role">${si.role||''}</span>${si.path?` <code>${si.path.split('/').pop()}</code>`:''}${si.note?` · ${si.note}`:''}</span>`;
+      const bad=si.ok===false;
+      const inReview=si.path&&PATHS.has(si.path);
+      const url=(!inReview&&si.path)?GH(si.path,si.line):null;
+      const inner=`<span class="role">${si.role||''}</span>${si.path?` <code>${si.path.split('/').pop()}${si.line?':'+si.line:''}</code>`:''}${si.note?` · ${si.note}`:''}`;
+      if(inReview) h+=`<span class="seam-site lk ${bad?'bad':'ok'}" data-path="${si.path}" title="${si.path} — open in this report">${inner}</span>`;
+      else if(url) h+=`<a class="seam-site lk ${bad?'bad':'ok'}" href="${url}" target="_blank" rel="noopener" title="${si.path} — open on GitHub">${inner}${EXT}</a>`;
+      else h+=`<span class="seam-site ${bad?'bad':'ok'}" title="${si.path||''}">${inner}</span>`;
     });
     h+=`</div></div>`;
   });
@@ -729,8 +755,15 @@ function seamHtml(){
 }
 function blastHtml(){
   if(!BLAST.length)return'';
-  let h=`<h3 class="sec">Blast radius</h3><p class="seam-note">Files that reference a changed symbol but are <b>not</b> in this PR — candidate missed seams worth a look.</p><ul class="blast">`;
-  BLAST.forEach(b=>{h+=`<li><code>${b.symbol||''}</code> &nbsp;→&nbsp; ${(b.files||[]).map(x=>`<code>${x}</code>`).join(', ')||'<span style="color:var(--fg-3)">(none)</span>'}</li>`;});
+  let h=`<h3 class="sec">Blast radius</h3><p class="seam-note">Files that reference a changed symbol but are <b>not</b> in this PR — candidate missed seams worth a look.${REPO&&REF?' Each links to GitHub.':''}</p><ul class="blast">`;
+  BLAST.forEach(b=>{
+    const files=(b.files||[]).map(x=>{
+      const path=typeof x==='string'?x:(x.path||'');const line=(typeof x==='object'&&x.line)?x.line:null;
+      const url=GH(path,line);const label=path+(line?':'+line:'');
+      return url?`<a class="blk" href="${url}" target="_blank" rel="noopener">${label}${EXT}</a>`:`<code>${label}</code>`;
+    }).join(', ');
+    h+=`<li><code>${b.symbol||''}</code> &nbsp;→&nbsp; ${files||'<span style="color:var(--fg-3)">(none)</span>'}</li>`;
+  });
   return h+`</ul>`;
 }
 function shownComments(f){return f.comments.filter(cm=>!state.hidden[cm[0]]);}
@@ -766,7 +799,8 @@ function render(){
       <div class="navbtn" ${i<=1?'disabled':''} onclick="step(-1)">← Prev</div>
       <div class="navbtn" ${i>=ORDER.length-1?'disabled':''} onclick="step(1)">Next →</div>
     </div></div>`;
-  h+=`<div class="sub">${f.path}<span class="dotsep">·</span>step ${f.seq} of ${FILES.length}${f.add||f.del?`<span class="dotsep">·</span>`+counts(f):''}</div>`;
+  const pathHtml=GH(f.path)?`<a class="pathlink" href="${GH(f.path)}" target="_blank" rel="noopener" title="open on GitHub">${f.path}${EXT}</a>`:f.path;
+  h+=`<div class="sub">${pathHtml}<span class="dotsep">·</span>step ${f.seq} of ${FILES.length}${f.add||f.del?`<span class="dotsep">·</span>`+counts(f):''}</div>`;
   h+=`<div class="tabs">
       <div class="tab ${state.tab==='context'?'active':''}" data-t="context">Context</div>
       <div class="tab ${state.tab==='review'?'active':''}" data-t="review">Review${shownCount?` <span class="tcount">${shownCount}</span>`:''}</div>
@@ -781,6 +815,7 @@ function render(){
       const p=parseComment(cm);const isIssue=p.sev!=='good';const id=fid(f.path,idx);const done=resolved.has(id);
       let right='';
       if(p.line!=null)right+=`<button class="jumpbtn" title="see this line in the diff" onclick="jumpToLine(${idx})">→ line ${p.line}</button>`;
+      if(p.line!=null&&GH(f.path,p.line))right+=`<a class="jumpbtn ghlink" href="${GH(f.path,p.line)}" target="_blank" rel="noopener" title="open this line on GitHub">GitHub${EXT}</a>`;
       if(isIssue)right+=`<label class="resolve" title="mark as resolved"><input type="checkbox" ${done?'checked':''} onchange="toggleResolved('${f.path}',${idx},this)"> resolved</label>`;
       right+=`<button class="copybtn" title="copy comment" data-file="${f.path}" data-kind="Review · ${SEVL[p.sev]||''}" onclick="copyBox(this)">⧉ copy</button>`;
       let gh=p.gh?`<div class="gh"><div class="ghlabel"><span>GitHub comment</span><span class="copy" title="copy" onclick="navigator.clipboard.writeText(this.parentNode.nextElementSibling.innerText)">⧉</span></div><div class="ghtext">${p.gh}</div></div>`:'';
