@@ -1,6 +1,6 @@
 ---
 name: pr-review-html
-description: Review a pull request against your repo's standards and produce an interactive, self-contained HTML report (sidebar of files in reading order; each file has a "Context" tab explaining the change in plain language, a "Review" tab with severity-rated comments, and a "Full diff" tab showing every changed line). The review itself is deep and multi-lens — bugs, cross-file seams, tests, comments, silent failures, type design, conventions — with a confidence score per finding so only high-confidence issues surface. Use when asked to review a PR and see both the findings and the full code changes in one place. The HTML is a temporary scratch artifact to delete after the comments are posted and the PR is merged.
+description: Review a pull request against your repo's standards and produce an interactive, self-contained HTML report (sidebar of files in reading order; each file has a "Context" tab explaining the change in plain language, a "Review" tab with severity-rated comments, and a "Full diff" tab showing every changed line). The review itself is deep and multi-lens — bugs, cross-file seams, tests, comments, silent failures, type design, conventions — where each finding is verified against the code and tagged confirmed or plausible, so only issues that hold up surface. Use when asked to review a PR and see both the findings and the full code changes in one place. The HTML is a temporary scratch artifact to delete after the comments are posted and the PR is merged.
 allowed-tools: Bash, Read, Write, Grep, Glob
 argument-hint: "[PR number or URL]"
 ---
@@ -165,28 +165,30 @@ Work in reading order (source of truth → consumers → tests) so context accru
 9. **Dead code / debris.** Leftover debug prints, commented-out blocks, unused
    imports/vars introduced by the change, TODOs left in shipped code.
 
-**3b. Score every candidate finding 0–100, then filter.**
-For each finding, assign a confidence score using this rubric, then keep only
-findings scoring **≥ 80**. Being wrong erodes trust more than missing a nit, so
-default low when unsure.
+**3b. Verify each candidate, then decide — don't score.**
+Numeric confidence scores are false precision: an LLM can't reliably tell a "78"
+from an "83", so a "keep everything ≥ 80" rule is theatre. What actually matters is
+whether you *verified* the finding. For each candidate:
 
-- **0** — Not confident. False positive under light scrutiny, or a pre-existing
-  issue on lines the PR did not touch.
-- **25** — Somewhat confident. Might be real, might be a false positive; you could
-  not verify it. Stylistic issues not explicitly called out in a convention doc
-  live here.
-- **50** — Moderately confident. Verified real, but a nitpick or rare in practice;
-  low importance relative to the rest of the PR.
-- **75** — Highly confident. Double-checked; very likely hit in practice; the PR's
-  current approach is insufficient; directly impacts functionality, or is
-  explicitly required by a convention doc.
-- **100** — Certain. Double-checked and confirmed; will happen frequently; the
-  evidence directly proves it.
+1. **Try to disprove it.** Trace it in the real code — open the producer, the
+   sibling, the caller. Many candidates die here; that is the point of the pass.
+2. **Require evidence.** Keep it only if you can point at concrete, checkable proof —
+   the line, the trace, the site that wasn't updated. A finding you can't ground in
+   something checkable is a guess: drop it.
+3. **Tag what survives, binary.** LLMs *are* well-calibrated on a two-way split, so
+   label each surviving finding:
+   - `confirmed` — you verified it in the code; the evidence is in the body.
+   - `plausible` — it looks real but you could not fully verify it (missing context,
+     runtime-dependent). Keep only if it's genuinely worth the reader's time, and
+     mark it so — never dress a guess as a certainty.
+4. **Severity is impact, not confidence.** `block`/`high`/`med`/`low` rate how much
+   it hurts *if real*; the separate `confirmed`/`plausible` tag rates how sure you
+   are. A confirmed nit is still `low`; a plausible data-loss bug is still `high`.
 
-Map surviving findings to HTML severities: 90–100 → `block`, 80–89 → `high`,
-verified-but-minor (50–75 you still want to mention) → `med`/`low`. If you flagged
-something then disproved it while reading, keep the trail as a `good` comment
-rather than deleting it — it shows the seam was checked.
+If you flagged something then disproved it while reading, keep the trail as a `good`
+comment rather than deleting it — it shows the seam was checked. Keep applying the
+false-positive list below throughout: it is a rule, not a score, and it is the real
+filter that keeps the report trustworthy.
 
 **Do NOT flag (false positives):**
 - Pre-existing issues, or issues on lines the PR did not modify.
@@ -234,6 +236,12 @@ Write `/tmp/pr_${PR}_review.json` following the schema in
   a trailing element of the comment array (after the optional GitHub draft). The
   finding then renders inline in the diff and gets a "→ line N" jump — the single
   biggest reading win, so do it for every finding that points at a concrete line.
+- Tag each finding's **confidence** (from step 3b) by appending the string
+  `"confirmed"` or `"plausible"` as a trailing element of the comment array
+  (order-independent with the GitHub draft and the line number). Omit it for `good`
+  notes. Use `confirmed` only when you actually verified it in the code; use
+  `plausible` for anything you could not fully check — the report renders a
+  `plausible` marker so the reader knows it's unverified.
 - Populate **`seams`** from the cross-file-seam lens (step 3, lens 2): one entry per
   changed symbol, each site `{role, path, ok}` with `ok:false` for a side that was
   NOT updated. This surfaces the highest-value class of bug at a glance.

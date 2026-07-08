@@ -42,11 +42,14 @@ review.json schema:
       "note": "optional highlighted banner shown above the tabs (or null)",
       "comments": [
         # [severity, "Headline", "HTML body"]
-        # + OPTIONAL string  = a GitHub-ready draft (shown in a copy box)
-        # + OPTIONAL number  = a line in the NEW file to anchor to; the finding then
-        #   renders inline in the Full-diff tab at that line and gets a "→ line N" jump.
-        ["block", "Headline", "HTML body explaining the problem in depth", "GitHub draft", 42],
-        ["high",  "Headline", "HTML body"]
+        # Any of these OPTIONAL trailing elements may follow, in any order:
+        #   - a string that is NOT "confirmed"/"plausible" = a GitHub-ready draft (copy box)
+        #   - a number = a line in the NEW file to anchor to; the finding then renders
+        #     inline in the Full-diff tab at that line and gets a "→ line N" jump
+        #   - the string "confirmed" or "plausible" = confidence tag; "plausible"
+        #     renders an "unverified" marker so a guess is never shown as a certainty
+        ["block", "Headline", "HTML body explaining the problem in depth", "GitHub draft", 42, "confirmed"],
+        ["high",  "Headline", "HTML body", 88, "plausible"]
       ]
     }
   ]
@@ -445,6 +448,10 @@ h2.filetitle{color:var(--fg);font-family:var(--font-mono);font-size:1.08em;word-
 .comment.c-med::before{background:var(--sev-med)}.comment.c-low::before{background:var(--sev-low)}
 .comment.c-good::before{background:var(--sev-good)}.comment.c-new::before{background:var(--sev-new)}
 .comment.done{opacity:.5}
+.comment.plausible{border-style:dashed}
+.comment.plausible::before{opacity:.55}
+.conf-tag{display:inline-flex;align-items:center;font-size:.6em;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  font-family:var(--font-mono);color:var(--fg-3);border:1px dashed var(--line-3);border-radius:5px;padding:1px 6px;flex-shrink:0}
 .comment.done .chead b, .comment.done .chead .htext{text-decoration:line-through;text-decoration-color:var(--fg-3)}
 .comment .chead{font-weight:680;font-size:.9em;margin-bottom:7px;display:flex;align-items:center;gap:10px;color:var(--fg)}
 .comment .chead .htext{flex:1;min-width:0}
@@ -623,8 +630,15 @@ function saveResolved(){try{localStorage.setItem(RESKEY,JSON.stringify([...resol
 function issueIds(){const a=[];FILES.forEach(f=>f.comments.forEach((c,i)=>{if(c&&c[0]!=='good')a.push(fid(f.path,i));}));return a;}
 function progress(){const all=issueIds();return {done:all.filter(id=>resolved.has(id)).length,total:all.length};}
 
-/* ---- comment parsing: 4th/5th element can be a GitHub draft (string) or a line (number) ---- */
-function parseComment(cm){let gh=null,line=null;[cm[3],cm[4]].forEach(v=>{if(typeof v==='string')gh=v;else if(typeof v==='number')line=v;});return {sev:cm[0],head:cm[1],body:cm[2],gh,line};}
+/* ---- comment parsing: trailing elements can be a GitHub draft (string), a line
+   (number) or a confidence tag ("confirmed"/"plausible") — order-independent ---- */
+function parseComment(cm){let gh=null,line=null,conf=null;
+  [cm[3],cm[4],cm[5]].forEach(v=>{
+    if(typeof v==='number')line=v;
+    else if(typeof v==='string'){const s=v.toLowerCase();if(s==='confirmed'||s==='plausible')conf=s;else gh=v;}
+  });
+  return {sev:cm[0],head:cm[1],body:cm[2],gh,line,conf};}
+const confTag=c=>c==='plausible'?' <span class="conf-tag" title="looks real but was not fully verified">plausible</span>':'';
 
 /* ---- theme ---- */
 const THKEY='pr_theme';
@@ -770,7 +784,7 @@ function render(){
       if(isIssue)right+=`<label class="resolve" title="mark as resolved"><input type="checkbox" ${done?'checked':''} onchange="toggleResolved('${f.path}',${idx},this)"> resolved</label>`;
       right+=`<button class="copybtn" title="copy comment" data-file="${f.path}" data-kind="Review · ${SEVL[p.sev]||''}" onclick="copyBox(this)">⧉ copy</button>`;
       let gh=p.gh?`<div class="gh"><div class="ghlabel"><span>GitHub comment</span><span class="copy" title="copy" onclick="navigator.clipboard.writeText(this.parentNode.nextElementSibling.innerText)">⧉</span></div><div class="ghtext">${p.gh}</div></div>`:'';
-      h+=`<div class="comment c-${p.sev} ${done?'done':''}"><div class="chead"><span class="badge ${SEV[p.sev]||'b-good'}">${SEVL[p.sev]||''}</span> <span class="htext">${p.head}</span><span class="cright">${right}</span></div><div class="cbody">${p.body}</div>${gh}</div>`;
+      h+=`<div class="comment c-${p.sev} ${done?'done':''} ${p.conf==='plausible'?'plausible':''}"><div class="chead"><span class="badge ${SEV[p.sev]||'b-good'}">${SEVL[p.sev]||''}</span>${confTag(p.conf)} <span class="htext">${p.head}</span><span class="cright">${right}</span></div><div class="cbody">${p.body}</div>${gh}</div>`;
     });
     if(!any)h+=`<div class="nocomment">${f.comments.length?'All comments hidden by the severity filter.':'No comments — mechanical change.'}</div>`;
   } else { h+=f.diffHtml; }
@@ -790,7 +804,7 @@ function decorateDiff(f){
   f.comments.forEach((cm,idx)=>{const p=parseComment(cm);if(p.line==null)return;
     const anchor=table.querySelector(`tr[data-nl="${p.line}"]`);if(!anchor)return;
     const tr=document.createElement('tr');tr.className='inline-comment ic-'+p.sev;tr.dataset.for=fid(f.path,idx);
-    tr.innerHTML=`<td colspan="4"><div class="ic"><div class="ichead"><span class="badge ${SEV[p.sev]||'b-good'}">${SEVL[p.sev]||''}</span> ${p.head}</div><div class="icbody">${p.body}</div></div></td>`;
+    tr.innerHTML=`<td colspan="4"><div class="ic"><div class="ichead"><span class="badge ${SEV[p.sev]||'b-good'}">${SEVL[p.sev]||''}</span>${confTag(p.conf)} ${p.head}</div><div class="icbody">${p.body}</div></div></td>`;
     anchor.after(tr);});
 }
 function jumpToLine(idx){
