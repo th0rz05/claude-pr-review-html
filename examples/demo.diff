@@ -1,0 +1,170 @@
+diff --git a/app/access/ownership.py b/app/access/ownership.py
+deleted file mode 100644
+index 3a1f2c4..0000000
+--- a/app/access/ownership.py
++++ /dev/null
+@@ -1,18 +0,0 @@
+-"""Owner-only access checks (superseded by app/access/permissions.py)."""
+-from app.models.board import Board
+-from app.errors import Forbidden
+-
+-
+-def require_owner(user, board):
+-    """Raise 403 unless `user` is the board's sole owner."""
+-    if board.owner_id != user.id:
+-        raise Forbidden("only the owner may perform this action")
+-
+-
+-def is_owner(user, board):
+-    return board.owner_id == user.id
+-
+-
+-def owned_boards(user):
+-    """Every board this user owns."""
+-    return Board.query.filter_by(owner_id=user.id).all()
+diff --git a/app/access/permissions.py b/app/access/permissions.py
+new file mode 100644
+index 0000000..b2c3d4e
+--- /dev/null
++++ b/app/access/permissions.py
+@@ -0,0 +1,32 @@
++"""Membership-based access checks. Replaces the old owner-only model: a board
++is now shared with members, each carrying a role (viewer / editor / owner)."""
++from app.models.board import BoardMember
++from app.errors import Forbidden, NotFound
++
++VIEWER, EDITOR, OWNER = "viewer", "editor", "owner"
++_RANK = {VIEWER: 0, EDITOR: 1, OWNER: 2}
++
++
++def _role(user, board):
++    m = BoardMember.query.filter_by(board_id=board.id, user_id=user.id).first()
++    return m.role if m else None
++
++
++def can_view(user, board):
++    return _role(user, board) is not None
++
++
++def can_edit(user, board):
++    role = _role(user, board)
++    return role is not None and _RANK[role] >= _RANK[EDITOR]
++
++
++def require_view(user, board):
++    # 404 (not 403) so we never reveal a board the caller can't see.
++    if not can_view(user, board):
++        raise NotFound()
++
++
++def require_edit(user, board):
++    if not can_edit(user, board):
++        raise Forbidden("editor role required")
+diff --git a/app/access/members.py b/app/access/members.py
+new file mode 100644
+index 0000000..c4d5e6f
+--- /dev/null
++++ b/app/access/members.py
+@@ -0,0 +1,22 @@
++"""Board membership: list / invite collaborators."""
++from app.db import db
++from app.errors import NotFound
++from app.models.board import BoardMember
++from app.models.user import User
++
++
++def list_members(board):
++    rows = BoardMember.query.filter_by(board_id=board.id).all()
++    return [
++        {"user_id": m.user_id, "email": m.user.email, "role": m.role}
++        for m in rows
++    ]
++
++
++def invite(board, email, role="viewer"):
++    user = User.query.filter_by(email=email).first()
++    if user is None:
++        raise NotFound(f"no user with email {email}")
++    member = BoardMember(board_id=board.id, user_id=user.id, role=role)
++    db.session.add(member)
++    db.session.commit()
++    return member
+diff --git a/app/models/board.py b/app/models/board.py
+index 1111111..2222222 100644
+--- a/app/models/board.py
++++ b/app/models/board.py
+@@ -1,9 +1,25 @@
+ from app.db import db
+
+
+ class Board(db.Model):
+     __tablename__ = "boards"
+     id = db.Column(db.Integer, primary_key=True)
+     name = db.Column(db.String(120), nullable=False)
+     owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
++    members = db.relationship(
++        "BoardMember", back_populates="board",
++        cascade="all, delete-orphan",
++    )
++
++
++class BoardMember(db.Model):
++    __tablename__ = "board_members"
++    id = db.Column(db.Integer, primary_key=True)
++    board_id = db.Column(db.Integer, db.ForeignKey("boards.id"), nullable=False)
++    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
++    role = db.Column(db.String(16), nullable=False, default="viewer")
++    board = db.relationship("Board", back_populates="members")
++    user = db.relationship("User")
+diff --git a/app/api/boards.py b/app/api/boards.py
+index 3333333..4444444 100644
+--- a/app/api/boards.py
++++ b/app/api/boards.py
+@@ -1,12 +1,14 @@
+ from flask import Blueprint, jsonify, request, g
+-from app.access.ownership import require_owner, owned_boards
++from app.access.permissions import require_view, require_edit, can_view
++from app.access.members import list_members, invite
+ from app.models.board import Board
+ from app.db import db
+
+ bp = Blueprint("boards", __name__)
+
+
+ @bp.get("/boards")
+ def list_boards():
+-    boards = owned_boards(g.user)
+-    return jsonify([{"id": b.id, "name": b.name} for b in boards])
++    boards = Board.query.all()
++    visible = [b for b in boards if can_view(g.user, b)]
++    return jsonify([{"id": b.id, "name": b.name} for b in visible])
+@@ -17,12 +20,12 @@ def get_board(board_id):
+     board = Board.query.get_or_404(board_id)
+-    require_owner(g.user, board)
++    require_view(g.user, board)
+     return jsonify({"id": board.id, "name": board.name})
+
+
+ @bp.delete("/boards/<int:board_id>")
+ def delete_board(board_id):
+     board = Board.query.get_or_404(board_id)
+-    require_owner(g.user, board)
++    require_edit(g.user, board)
+     db.session.delete(board)   # members cascade via delete-orphan
+     db.session.commit()
+     return "", 204
+@@ -30,0 +34,14 @@ def delete_board(board_id):
++@bp.get("/boards/<int:board_id>/members")
++def members(board_id):
++    board = Board.query.get_or_404(board_id)
++    require_view(g.user, board)
++    return jsonify(list_members(board))
++
++
++@bp.post("/boards/<int:board_id>/invite")
++def invite_member(board_id):
++    board = Board.query.get_or_404(board_id)
++    require_edit(g.user, board)
++    body = request.get_json()
++    member = invite(board, body["email"], body.get("role", "viewer"))
++    return jsonify({"user_id": member.user_id, "role": member.role}), 201

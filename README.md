@@ -7,8 +7,9 @@ GitHub's review tab.
 
 The review is the point: it reads the *full files* (not just the diff), runs the
 change through a set of focused lenses (bugs, cross-file seams, tests, silent
-failures, type design, conventions…), and scores every finding by confidence so
-only the ones worth your time show up. The report just makes that easy to read.
+failures, type design, conventions…), and **verifies each finding before showing
+it** — tagged *confirmed* or *plausible* so a guess is never dressed up as a
+certainty. The report just makes that easy to read.
 
 ![Overview](docs/screenshot-overview.png)
 
@@ -30,19 +31,26 @@ list with no story. This skill instead gives you **one HTML file** that:
 
 ## Features
 
-- **Deep, multi-lens review** with a 0–100 confidence score per finding; only
-  high-confidence issues surface (fewer false positives than a one-shot pass).
+- **Deep, multi-lens review that verifies before it reports** — every finding is
+  tagged *confirmed* or *plausible* (an unverified guess is marked, never shown as
+  fact), so you get fewer false positives than a one-shot pass.
 - **Reading-order walkthrough** with a numbered sidebar, Prev/Next, and a clickable
   reading path on the overview.
+- **File-status badges:** every file is tagged **added / deleted / renamed** straight
+  from the diff — shown in the sidebar and file header, independent of review
+  severity, so a deleted file never reads as "new".
 - **Three tabs per file:** Context (plain-language), Review (severity-rated
   comments), Full diff (two-gutter, GitHub-style colours, `<mark>` word highlights).
 - **Inline diff comments + jump:** findings anchor to a line, render inline in the
   diff GitHub-style, and get a "→ line N" jump from the Review tab.
-- **Seam map:** a panel of each changed symbol and where it lives
-  (producer / model / reader / tests) — any side that *wasn't* updated is flagged
-  red. The highest-value class of bug, surfaced at a glance.
-- **Blast radius:** files that reference a changed symbol but aren't in the PR —
-  candidate missed seams.
+- **Seam map — an active negative-space check:** for each changed symbol, Claude
+  opens every place it lives (producer / model / reader / tests) and judges whether
+  it should have changed; any side that *wasn't* updated is flagged **red**. The
+  highest-value class of bug, surfaced at a glance.
+- **Blast radius with a verdict:** files that reference a changed symbol but aren't in
+  the PR — each one opened and given Claude's verdict inline (*checked — unaffected*
+  / *MISSED — still reads the old shape*). A real missed change is promoted to a
+  first-class finding, not just a red chip.
 - **Click straight to the evidence — contained:** seam sites and blast-radius files
   that aren't in the PR open their code in an in-report **peek panel** (the snippet
   ships with the report — no network, still one self-contained file). Files that
@@ -105,7 +113,7 @@ opens it. Ask it to post the findings as inline PR comments if you want.
 ## How it works
 
 ```
-gh pr diff ──▶ read full files ──▶ multi-lens review ──▶ score & filter ──▶ review.json
+gh pr diff ──▶ read full files ──▶ multi-lens review ──▶ verify & tag ──▶ review.json
                                                                                │
                                                         generate_review_html.py ▼
                                                                           report.html
@@ -124,7 +132,15 @@ python3 pr-review-html/generate_review_html.py \
 ## Example
 
 Open [`examples/example-report.html`](examples/example-report.html) in a browser to
-see a full report for a sample PR.
+see a full report for a sample PR — a boards-sharing migration that deletes one file,
+adds two, and leaves a stale reference outside the diff (the red seam). It's fully
+reproducible from the committed inputs:
+
+```bash
+python3 pr-review-html/generate_review_html.py \
+  --diff examples/demo.diff --review examples/demo-review.json \
+  --out examples/example-report.html
+```
 
 ## Notes
 

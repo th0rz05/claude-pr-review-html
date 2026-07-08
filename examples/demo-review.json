@@ -1,0 +1,216 @@
+{
+  "pr": {
+    "number": 17,
+    "title": "Share boards with roles (viewer / editor / owner)",
+    "subtitle": "Jane Doe · 5 files",
+    "counts": "2 MEDIUM · 3 NIT · OK elsewhere"
+  },
+  "overview_html": "\n<div class=\"intro\">\n<p>This PR moves boards from a <b>single-owner</b> model to <b>membership with\nroles</b>. A board is now shared with members, each carrying a role\n(<code>viewer</code> / <code>editor</code> / <code>owner</code>), and every\nendpoint is gated on that role instead of <code>owner_id</code>.</p>\n\n<div class=\"flow\">\n  <span class=\"node\">owner_id == user.id</span>\n  <span class=\"node\">&rarr;</span>\n  <span class=\"node node-new\">BoardMember.role &ge; editor</span>\n</div>\n\n<h3>What to read for</h3>\n<p>The old <code>app/access/ownership.py</code> is <b>deleted</b> and replaced by\n<code>permissions.py</code> (added) and <code>members.py</code> (added). The\ninteresting question is the <b>negative space</b>: does anything still assume the\nold owner-only shape? The seam map and blast radius below record that check &mdash;\neach out-of-PR site was opened and judged, not assumed.</p>\n\n<p class=\"why\"><b>Good:</b> <code>require_view</code> returns <b>404, not 403</b>, so\na board the caller can't see is never revealed; and <code>delete-orphan</code> on\nthe new relationship cleans up membership rows when a board is deleted.</p>\n\n<p class=\"warn\"><b>Watch:</b> one file outside the diff\n(<code>app/graph/dependencies.py</code>) still reads the old shape, and there are\n<b>no tests</b> anywhere for the new authorization paths.</p>\n</div>\n",
+  "groups": [
+    "Source of truth",
+    "Consumers",
+    "Beyond the diff"
+  ],
+  "seams": [
+    {
+      "symbol": "owner-only check → membership access",
+      "sites": [
+        {
+          "role": "producer",
+          "path": "app/access/ownership.py",
+          "ok": true,
+          "note": "deleted — logic moved to permissions.can_view / can_edit"
+        },
+        {
+          "role": "model",
+          "path": "app/models/board.py",
+          "ok": true,
+          "note": "BoardMember + members relationship added"
+        },
+        {
+          "role": "reader",
+          "path": "app/api/boards.py",
+          "ok": true,
+          "note": "list_boards → can_view filter"
+        },
+        {
+          "role": "reader",
+          "path": "app/api/boards.py",
+          "ok": true,
+          "note": "get_board → require_view (404-to-hide)"
+        },
+        {
+          "role": "reader",
+          "path": "app/api/boards.py",
+          "ok": true,
+          "note": "delete_board → require_edit"
+        },
+        {
+          "role": "reader",
+          "path": "app/api/boards.py",
+          "ok": true,
+          "note": "new members / invite endpoints gated by role"
+        },
+        {
+          "role": "reader",
+          "path": "app/graph/dependencies.py",
+          "ok": false,
+          "line": 179,
+          "start": 176,
+          "snippet": "def resolve(board, user):\n    # ownership-checked upstream: only the owner reaches this path\n    if not is_owner(user, board):        # <- line 179\n        raise Forbidden()\n    return _deps_for(board)",
+          "note": "MISSED — comment & guard still say 'ownership-checked'; a shared editor now reaches this path"
+        },
+        {
+          "role": "test",
+          "path": "tests/",
+          "ok": false,
+          "note": "no test exercises the new roles / sharing paths"
+        }
+      ]
+    }
+  ],
+  "blast_radius": [
+    {
+      "symbol": "require_owner / is_owner  (removed)",
+      "files": [
+        {
+          "path": "app/graph/dependencies.py",
+          "line": 179,
+          "start": 176,
+          "snippet": "def resolve(board, user):\n    # ownership-checked upstream: only the owner reaches this path\n    if not is_owner(user, board):        # <- line 179\n        raise Forbidden()\n    return _deps_for(board)",
+          "note": "MISSED — still reads the old owner-only shape"
+        },
+        {
+          "path": "app/cli/export.py",
+          "line": 44,
+          "start": 41,
+          "snippet": "def export_board(board, user):\n    require_view(user, board)   # <- line 44, already migrated\n    rows = board.rows.all()\n    return _to_csv(rows)",
+          "note": "checked — already migrated to require_view, unaffected"
+        }
+      ]
+    }
+  ],
+  "entries": [
+    {
+      "path": "app/access/ownership.py",
+      "name": "ownership.py",
+      "group": "Source of truth",
+      "badge": "good",
+      "walk": "The old owner-only helper — deleted. Start here to see what the PR replaces.",
+      "context": "<p>This is the <b>old</b> access layer, and the PR <b>deletes it entirely</b>. It answered one question &mdash; <i>are you the single owner of this board?</i> &mdash; via <code>owner_id == user.id</code>. Everything that imported it (<code>require_owner</code>, <code>is_owner</code>, <code>owned_boards</code>) is migrated in this PR to the membership-based checks in <code>permissions.py</code>.</p><p>Because it's gone, the key review question is whether <b>anything outside the diff</b> still imports it &mdash; see the blast radius on the overview.</p>",
+      "comments": [
+        [
+          "good",
+          "Correct, complete deletion",
+          "<p>Verified: no file <i>inside</i> the PR still imports <code>ownership</code>. The one out-of-PR reference is flagged in the blast radius below.</p>",
+          "confirmed"
+        ]
+      ]
+    },
+    {
+      "path": "app/access/permissions.py",
+      "name": "permissions.py",
+      "group": "Source of truth",
+      "badge": "good",
+      "walk": "The replacement: role-ranked access checks. This is the new source of truth.",
+      "context": "<p>The new access layer. A board is shared through <code>BoardMember</code> rows, each with a <code>role</code>; roles are ranked (<code>viewer &lt; editor &lt; owner</code>) so a single comparison answers &ldquo;can this user do X?&rdquo;.</p><p><b>Note the deliberate choice</b> in <code>require_view</code>: it raises <b>404, not 403</b>, so the API never reveals the existence of a board the caller isn't a member of.</p>",
+      "comments": [
+        [
+          "good",
+          "404-to-hide is the right call",
+          "<p><code>require_view</code> raising <code>NotFound</code> rather than <code>Forbidden</code> avoids leaking that a board exists. Good instinct.</p>",
+          21,
+          "confirmed"
+        ]
+      ]
+    },
+    {
+      "path": "app/access/members.py",
+      "name": "members.py",
+      "group": "Source of truth",
+      "badge": "med",
+      "walk": "List / invite collaborators. Two things to check: what list_members returns, and whether invite is safe to repeat.",
+      "context": "<p>Membership management: <code>list_members</code> returns everyone on a board, and <code>invite</code> adds a user by email. Read this alongside the endpoints in <code>boards.py</code> that expose them.</p>",
+      "comments": [
+        [
+          "med",
+          "list_members exposes every member's email to any viewer",
+          "<p><code>list_members</code> returns <code>m.user.email</code> for every member, and the <code>/members</code> endpoint gates it on <code>require_view</code> &mdash; so <b>any viewer</b> can enumerate the email of every collaborator on a shared board. If that's intended for sharing UIs, fine; if not, restrict to editors or return only <code>user_id</code>.</p><p>(Also an N+1: <code>m.user.email</code> lazy-loads one query per member.)</p>",
+          10,
+          "plausible"
+        ],
+        [
+          "low",
+          "invite isn't idempotent — re-inviting creates a duplicate row",
+          "<p><code>invite</code> never checks for an existing <code>BoardMember</code>, so calling it twice inserts two rows for the same (board, user) and still returns <code>201</code>. Consider a unique constraint on <code>(board_id, user_id)</code> and an upsert, or a 200 on re-invite.</p>",
+          19,
+          "confirmed"
+        ]
+      ]
+    },
+    {
+      "path": "app/models/board.py",
+      "name": "board.py",
+      "group": "Source of truth",
+      "badge": "good",
+      "walk": "The model change that powers the whole PR: the members relationship + BoardMember.",
+      "context": "<p>Adds the <code>BoardMember</code> table and a <code>members</code> relationship on <code>Board</code>. The <code>cascade=\"all, delete-orphan\"</code> is what makes deleting a board clean up its membership rows &mdash; the reason <code>delete_board</code> is safe.</p>",
+      "comments": [
+        [
+          "good",
+          "delete-orphan cascade closes the obvious leak",
+          "<p>Membership rows are removed with their board. Without this, deleting a board would strand <code>board_members</code> rows. Nice.</p>",
+          "confirmed"
+        ]
+      ]
+    },
+    {
+      "path": "app/api/boards.py",
+      "name": "boards.py",
+      "group": "Consumers",
+      "badge": "med",
+      "walk": "Every endpoint migrated from require_owner to the role checks. The reader side of the seam.",
+      "context": "<p>The HTTP layer. Each endpoint swaps <code>require_owner</code> for a role check (<code>require_view</code> to read, <code>require_edit</code> to mutate) and two new endpoints expose membership. This is the <b>reader</b> side of the seam &mdash; the place a missed migration would bite &mdash; so it's read line by line.</p>",
+      "comments": [
+        [
+          "med",
+          "list_boards loads every board, then filters in Python",
+          "<p><code>Board.query.all()</code> pulls <b>all</b> boards in the system into memory and then keeps the ones <code>can_view</code> passes &mdash; and <code>can_view</code> runs a query <b>per board</b>. On a large instance this is both a memory and an N+1 problem. Prefer a join against <code>board_members</code> filtered by <code>user_id</code>.</p>",
+          12,
+          "confirmed"
+        ],
+        [
+          "good",
+          "Authorization migration is complete and correct",
+          "<p>All four pre-existing paths moved to the right check (read → view, mutate → edit), and <code>delete_board</code>'s cascade comment matches the model. Verified against every call site.</p>",
+          29,
+          "confirmed"
+        ],
+        [
+          "med",
+          "No tests cover the new authorization paths",
+          "<p>There is no test anywhere in the repo exercising 404-to-hide, the 403 on <code>require_edit</code>, or owner-vs-editor boundaries. Authorization is exactly the code you don't want to refactor untested &mdash; this is the highest-value gap in the PR.</p>",
+          "confirmed"
+        ]
+      ]
+    },
+    {
+      "path": "app/graph/dependencies.py",
+      "name": "dependencies.py",
+      "group": "Beyond the diff",
+      "badge": "med",
+      "walk": "NOT in the PR — but it still reads the old owner-only shape. A missed change, promoted to a first-class finding.",
+      "note": "This file is not part of the PR diff. It surfaced from the negative-space check (seam map + blast radius) and is included here because it should have changed and didn't.",
+      "context": "<p>This file was <b>not touched</b> by the PR, but it imports the now-deleted <code>is_owner</code> and its comment still claims the path is &ldquo;ownership-checked&rdquo;. After the migration a <b>shared editor</b> also reaches <code>resolve()</code>, so the guard is both stale and (once <code>ownership.py</code> is gone) an <code>ImportError</code> waiting to happen.</p><p>This is the class of bug the skill exists to catch: the change that <i>should</i> have happened and didn't.</p>",
+      "comments": [
+        [
+          "med",
+          "Stale owner-only guard on a now-shared path",
+          "<p><code>dependencies.py:179</code> still calls <code>is_owner</code> (deleted in this PR) and comments the path as &ldquo;ownership-checked&rdquo;. Migrate it to <code>can_edit</code> and update the comment; otherwise a shared editor is wrongly rejected and the import breaks once <code>ownership.py</code> is removed.</p>",
+          179,
+          "confirmed"
+        ]
+      ]
+    }
+  ]
+}
