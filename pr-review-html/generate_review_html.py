@@ -23,20 +23,25 @@ review.json schema:
   "overview_html": "<div class='intro'>...</div>",   # free HTML for the ★ Overview page
   "groups": ["★ Context", "Consumers", ...],         # sidebar group order == reading order
   "seams": [                                          # OPTIONAL — rendered as a "Seam map" on the overview.
-                                                      # A site whose `path` is in the diff links inside the report;
-                                                      # otherwise it links to GitHub (needs pr.repo + pr.ref).
+                                                      # A site resolves to the best available affordance:
+                                                      #   in the diff        -> links inside the report;
+                                                      #   has "snippet"      -> opens a contained "peek" panel (no network);
+                                                      #   else pr.repo+ref   -> links to GitHub (deep-linked to "line").
     {"symbol": "normalized_text",
      "sites": [                                       # each place the symbol lives; ok:false = a side NOT updated
-       {"role": "producer", "path": "src/graph/node.py", "ok": false, "note": "still writes raw_text", "line": 47},
+       {"role": "producer", "path": "src/graph/node.py", "ok": false, "note": "still writes raw_text",
+        "line": 47, "start": 40, "snippet": "def emit(self):\n    ...\n    self.raw_text = payload  # <- line 47\n    ..."},
        {"role": "model",    "path": "src/graph/state.py", "ok": true},
        {"role": "reader",   "path": "src/graph/read.py",  "ok": true},
        {"role": "test",     "path": "tests/test_graph.py","ok": true}
      ]}
   ],
   "blast_radius": [                                   # OPTIONAL — files that reference a changed symbol but are NOT in the diff.
-                                                      # `files` items may be "path" strings or {"path":..., "line":...};
-                                                      # they link to GitHub when pr.repo + pr.ref are set.
-    {"symbol": "classify", "files": ["src/api/routes.py", {"path": "src/workers/batch.py", "line": 88}]}
+                                                      # `files` items may be "path" strings or objects that also carry
+                                                      # {"line", "start", "snippet"} — same affordance ladder as seam sites
+                                                      # (contained peek when a snippet is given, else a GitHub link).
+    {"symbol": "classify", "files": ["src/api/routes.py",
+                                     {"path": "src/workers/batch.py", "line": 88, "start": 84, "snippet": "..."}]}
   ],
   "entries": [                                        # WITHIN a group, array order == reading order
     {
@@ -595,6 +600,26 @@ tr.inline-comment .ic .icbody b{color:var(--fg)}
 .hint{color:var(--fg-3);font-size:.75em;margin-top:22px;line-height:2.1;max-width:920px}
 kbd{background:var(--panel-2);border:1px solid var(--line-2);border-bottom-width:2px;border-radius:5px;padding:1px 6px;font-size:.9em;font-family:var(--font-mono);color:var(--fg-2)}
 
+/* peek — self-contained slide-over showing a referenced file's snippet */
+.peek-backdrop{position:fixed;inset:0;background:#0008;opacity:0;pointer-events:none;transition:opacity .2s;z-index:40;backdrop-filter:blur(1px)}
+.peek-backdrop.open{opacity:1;pointer-events:auto}
+.peek{position:fixed;top:0;right:0;bottom:0;width:min(760px,94vw);background:var(--bg-elev);border-left:1px solid var(--line-2);
+  box-shadow:-24px 0 60px -24px #000a;transform:translateX(101%);transition:transform .26s var(--ease);z-index:41;display:flex;flex-direction:column}
+.peek.open{transform:none}
+.pk-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--panel),transparent)}
+.pk-path{font-family:var(--font-mono);font-size:.84em;color:var(--fg);word-break:break-all}
+.pk-eyebrow{font-family:var(--font-mono);font-size:.6em;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
+.pk-actions{display:flex;align-items:center;gap:14px;flex-shrink:0}
+.pk-gh{font-size:.74em;color:var(--link);text-decoration:none;white-space:nowrap}.pk-gh:hover{text-decoration:underline}
+.pk-close{cursor:pointer;color:var(--fg-3);font-size:1.05em;line-height:1;border:1px solid var(--line-2);border-radius:var(--radius-xs);padding:2px 8px}
+.pk-close:hover{color:var(--fg);border-color:var(--line-3)}
+.pk-body{overflow:auto;padding:8px 0 24px;flex:1}
+table.peekcode{border-collapse:collapse;width:100%;font-family:var(--font-mono);font-size:.8em;line-height:1.62}
+table.peekcode td.ln{width:1%;min-width:52px;text-align:right;padding:0 12px;color:var(--fg-3);user-select:none;white-space:nowrap;font-variant-numeric:tabular-nums;border-right:1px solid var(--line)}
+table.peekcode td.cd{padding:0 14px;white-space:pre-wrap;word-break:break-word;color:var(--fg)}
+table.peekcode tr.pk-hit td.cd{background:var(--accent-soft)}
+table.peekcode tr.pk-hit td.ln{color:var(--accent-2);background:var(--accent-soft);box-shadow:inset 2px 0 0 var(--accent)}
+.pk{cursor:pointer}
 @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style></head><body>
@@ -626,6 +651,8 @@ kbd{background:var(--panel-2);border:1px solid var(--line-2);border-bottom-width
   <div class="resizer" id="resizer" title="drag to resize (double-click to reset)"></div>
   <main class="content" id="content"><div class="content-inner" id="inner"></div></main>
 </div>
+<div class="peek-backdrop" id="peekbd"></div>
+<aside class="peek" id="peek" aria-hidden="true"></aside>
 <script>
 const SEV={block:'b-block',high:'b-high',med:'b-med',low:'b-low',good:'b-good',new:'b-new'};
 const SEVL={block:'BLOCKER',high:'HIGH',med:'MEDIUM',low:'NIT',good:'OK',new:'NEW'};
@@ -637,6 +664,18 @@ const PATHS=new Set(FILES.map(f=>f.path));
 const REPO=D.repo||'', REF=D.ref||'';
 const GH=(path,line)=>(REPO&&REF&&path)?`https://github.com/${REPO}/blob/${REF}/${path}`+(line?`#L${line}`:''):null;
 const EXT=' <span class="ext">↗</span>';
+const PEEK=' <span class="ext">⤢</span>';
+const peekEnc=o=>encodeURIComponent(JSON.stringify(o));
+/* Resolve a referenced site/file to the best available affordance:
+   in-review file → internal nav; else a snippet → contained peek; else GitHub link; else plain text. */
+function siteLink(o,inReview,inner,lkClass,plainClass){
+  if(inReview) return `<span class="${lkClass}" data-path="${o.path}" title="${o.path} — open in this report">${inner}</span>`;
+  if(o.snippet){const enc=peekEnc({path:o.path,line:o.line,start:o.start,snippet:o.snippet,gh:GH(o.path,o.line)});
+    return `<span class="${lkClass} pk" data-peek="${enc}" title="${o.path} — peek the code here">${inner}${PEEK}</span>`;}
+  const url=GH(o.path,o.line);
+  if(url) return `<a class="${lkClass}" href="${url}" target="_blank" rel="noopener" title="${o.path} — open on GitHub">${inner}${EXT}</a>`;
+  return `<span class="${plainClass}" title="${o.path||''}">${inner}</span>`;
+}
 const ORDER=['__overview__',...FILES.map(f=>f.path)];
 let state={id:'__overview__',tab:'context',q:'',hidden:{}};
 let booted=false;
@@ -743,11 +782,8 @@ function seamHtml(){
     (s.sites||[]).forEach(si=>{
       const bad=si.ok===false;
       const inReview=si.path&&PATHS.has(si.path);
-      const url=(!inReview&&si.path)?GH(si.path,si.line):null;
       const inner=`<span class="role">${si.role||''}</span>${si.path?` <code>${si.path.split('/').pop()}${si.line?':'+si.line:''}</code>`:''}${si.note?` · ${si.note}`:''}`;
-      if(inReview) h+=`<span class="seam-site lk ${bad?'bad':'ok'}" data-path="${si.path}" title="${si.path} — open in this report">${inner}</span>`;
-      else if(url) h+=`<a class="seam-site lk ${bad?'bad':'ok'}" href="${url}" target="_blank" rel="noopener" title="${si.path} — open on GitHub">${inner}${EXT}</a>`;
-      else h+=`<span class="seam-site ${bad?'bad':'ok'}" title="${si.path||''}">${inner}</span>`;
+      h+=siteLink(si,inReview,inner,`seam-site lk ${bad?'bad':'ok'}`,`seam-site ${bad?'bad':'ok'}`);
     });
     h+=`</div></div>`;
   });
@@ -758,8 +794,10 @@ function blastHtml(){
   let h=`<h3 class="sec">Blast radius</h3><p class="seam-note">Files that reference a changed symbol but are <b>not</b> in this PR — candidate missed seams worth a look.${REPO&&REF?' Each links to GitHub.':''}</p><ul class="blast">`;
   BLAST.forEach(b=>{
     const files=(b.files||[]).map(x=>{
-      const path=typeof x==='string'?x:(x.path||'');const line=(typeof x==='object'&&x.line)?x.line:null;
-      const url=GH(path,line);const label=path+(line?':'+line:'');
+      const o=(typeof x==='string')?{path:x}:(x||{});const label=(o.path||'')+(o.line?':'+o.line:'');
+      if(o.snippet){const enc=peekEnc({path:o.path,line:o.line,start:o.start,snippet:o.snippet,gh:GH(o.path,o.line)});
+        return `<span class="blk pk" data-peek="${enc}">${label}${PEEK}</span>`;}
+      const url=GH(o.path,o.line);
       return url?`<a class="blk" href="${url}" target="_blank" rel="noopener">${label}${EXT}</a>`:`<code>${label}</code>`;
     }).join(', ');
     h+=`<li><code>${b.symbol||''}</code> &nbsp;→&nbsp; ${files||'<span style="color:var(--fg-3)">(none)</span>'}</li>`;
@@ -787,6 +825,7 @@ function render(){
     swap(c,inner);
     inner.querySelectorAll('.walk li').forEach(el=>el.onclick=()=>go(el.dataset.id));
     inner.querySelectorAll('.seam-site[data-path]').forEach(el=>el.onclick=()=>go(el.dataset.path));
+    wirePeeks(inner);
     inner.querySelectorAll('.stat-grid .stat').forEach((el,i)=>{el.style.animation='fadeUp .4s var(--ease) both';el.style.animationDelay=(i*40)+'ms';});
     return;
   }
@@ -864,6 +903,25 @@ function copyBox(btn){
     const old=btn.innerHTML;btn.classList.add('ok');btn.textContent='✓ copied';setTimeout(()=>{btn.classList.remove('ok');btn.innerHTML=old;},1200);});
 }
 
+/* ---- peek: show a referenced file's snippet inside the report ---- */
+function openPeek(o){
+  const start=o.start||1;
+  const lines=String(o.snippet||'').replace(/\n$/,'').split('\n');
+  let rows='';
+  lines.forEach((ln,i)=>{const no=start+i;const hit=(o.line&&no===o.line);
+    rows+=`<tr class="${hit?'pk-hit':''}"><td class="ln">${no}</td><td class="cd">${hl(ln)}</td></tr>`;});
+  const gh=o.gh?`<a class="pk-gh" href="${o.gh}" target="_blank" rel="noopener">open on GitHub ↗</a>`:'';
+  document.getElementById('peek').innerHTML=
+    `<div class="pk-head"><div><div class="pk-eyebrow">referenced file</div><div class="pk-path">${o.path||''}${o.line?':'+o.line:''}</div></div>`+
+    `<div class="pk-actions">${gh}<span class="pk-close" onclick="closePeek()">✕ Esc</span></div></div>`+
+    `<div class="pk-body"><table class="peekcode"><tbody>${rows}</tbody></table></div>`;
+  document.getElementById('peek').classList.add('open');
+  document.getElementById('peekbd').classList.add('open');
+}
+function closePeek(){document.getElementById('peek').classList.remove('open');document.getElementById('peekbd').classList.remove('open');}
+function wirePeeks(root){root.querySelectorAll('[data-peek]').forEach(el=>el.onclick=()=>{try{openPeek(JSON.parse(decodeURIComponent(el.dataset.peek)));}catch(e){}});}
+document.getElementById('peekbd').onclick=closePeek;
+
 /* ---- resizable sidebar ---- */
 (function(){const sb=document.getElementById('sidebar'),rz=document.getElementById('resizer');
   const MIN=220,MAX=680,DEF=340,KEY='pr_sidebar_w';const saved=parseInt(localStorage.getItem(KEY)||'',10);
@@ -875,6 +933,7 @@ function copyBox(btn){
 
 document.getElementById('q').addEventListener('input',e=>{state.q=e.target.value;sidebar();});
 document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&document.getElementById('peek').classList.contains('open')){closePeek();return;}
   if(e.metaKey||e.ctrlKey||e.altKey)return;
   if(e.target.tagName==='INPUT'){if(e.key==='Escape')e.target.blur();return;}
   if(e.key==='j'||e.key==='ArrowRight'){step(1);e.preventDefault();}

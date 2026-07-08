@@ -247,12 +247,18 @@ Write `/tmp/pr_${PR}_review.json` following the schema in
   NOT updated. This surfaces the highest-value class of bug at a glance.
 - Populate **`blast_radius`** from a repo-wide grep of each changed symbol: files
   that reference it but are not in the PR — candidate missed seams.
-- Set **`pr.repo`** (`owner/repo`, from the PR URL) and **`pr.ref`** (the head SHA —
-  `gh pr view $PR --json headRefOid`). This turns every file path into a link: seam
-  sites and blast-radius files that aren't in the diff open on GitHub (deep-linked to
-  the line when you give one), so the reviewer clicks straight to the evidence
-  instead of grepping by hand. Give seam sites a `line` and blast items a `{path,line}`
-  wherever you know the line.
+- **Make referenced files openable without leaving the report.** For a seam site or
+  blast-radius file that is NOT in the diff, include a `snippet` (the code you read
+  while reviewing — a ~10-30 line window around the relevant line), plus `line` (the
+  line of interest) and `start` (the first line number of the snippet). The report
+  then opens that code in a contained "peek" panel — no network, no auth, still one
+  self-contained file. You already read these files during the review, so you have
+  the snippet; prefer this over a bare link.
+- Optionally also set **`pr.repo`** (`owner/repo`) and **`pr.ref`** (the head SHA —
+  `gh pr view $PR --json headRefOid`). Then any path without a snippet becomes a
+  GitHub deep-link as a fallback, and each peek carries an "open on GitHub" escape
+  hatch. Use the SHA, not the branch name, so links survive the branch being deleted
+  on merge.
 - Include a file absent from the diff when it is the cause of a bug OR the source
   of truth needed to understand a seam (give it a `note`; no diff needed — the
   generator handles it). This is how you show context files first.

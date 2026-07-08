@@ -40,13 +40,14 @@ list with no story. This skill instead gives you **one HTML file** that:
   diff GitHub-style, and get a "→ line N" jump from the Review tab.
 - **Seam map:** a panel of each changed symbol and where it lives
   (producer / model / reader / tests) — any side that *wasn't* updated is flagged
-  red. Every site is a link: files in the PR jump inside the report, the rest open
-  on GitHub (deep-linked to the line). The highest-value class of bug, one click away.
+  red. The highest-value class of bug, surfaced at a glance.
 - **Blast radius:** files that reference a changed symbol but aren't in the PR —
-  candidate missed seams, each linking straight to GitHub.
-- **Links to the evidence, not by hand:** set `pr.repo` + `pr.ref` and every path
-  (seam sites, blast radius, per-file header, findings with a line) becomes a
-  GitHub deep-link, so you click through instead of grepping.
+  candidate missed seams.
+- **Click straight to the evidence — contained:** seam sites and blast-radius files
+  that aren't in the PR open their code in an in-report **peek panel** (the snippet
+  ships with the report — no network, still one self-contained file). Files that
+  *are* in the PR jump to their page in the report. Set `pr.repo` + `pr.ref` and
+  anything without a snippet falls back to a GitHub deep-link.
 - **Review progress:** tick findings off as you resolve them; a header progress bar
   and per-file checkmarks track it, persisted across reopens.
 - **Overview dashboard:** stat grid, before→after flow, one-line verdict.
@@ -55,9 +56,11 @@ list with no story. This skill instead gives you **one HTML file** that:
   `c`/`r`/`d` tabs, `/` filter, `t` theme), copy-ready comments with GitHub drafts.
 - **Zero dependencies:** pure-Python generator, system fonts, one offline file.
 
-|         Review tab (jump + resolve)         |        Full diff (inline comments)        |        Seam map & blast radius        |
-| :-----------------------------------------: | :---------------------------------------: | :-----------------------------------: |
-| ![Review](docs/screenshot-review.png)       | ![Diff](docs/screenshot-diff.png)         | ![Seam map](docs/screenshot-seam-map.png) |
+|         Review tab (jump + resolve)          |         Full diff (inline comments)          |
+| :------------------------------------------: | :------------------------------------------: |
+| ![Review](docs/screenshot-review.png)        | ![Diff](docs/screenshot-diff.png)            |
+|            Seam map & blast radius            |     Peek a referenced file — in-report       |
+| ![Seam map](docs/screenshot-seam-map.png)    | ![Peek](docs/screenshot-peek.png)            |
 
 ## Install
 
