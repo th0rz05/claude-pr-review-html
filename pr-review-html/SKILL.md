@@ -242,11 +242,23 @@ Write `/tmp/pr_${PR}_review.json` following the schema in
   notes. Use `confirmed` only when you actually verified it in the code; use
   `plausible` for anything you could not fully check — the report renders a
   `plausible` marker so the reader knows it's unverified.
-- Populate **`seams`** from the cross-file-seam lens (step 3, lens 2): one entry per
-  changed symbol, each site `{role, path, ok}` with `ok:false` for a side that was
-  NOT updated. This surfaces the highest-value class of bug at a glance.
-- Populate **`blast_radius`** from a repo-wide grep of each changed symbol: files
-  that reference it but are not in the PR — candidate missed seams.
+- **Seams are an investigation, not a list — this is the point of the skill.** The
+  most dangerous bugs are in the *negative space*: the site that SHOULD have changed
+  but didn't. So for each changed symbol, actually OPEN every site — especially the
+  ones OUTSIDE the diff (the producer that wasn't touched, the sibling, the caller,
+  the deleted-module's old importers) — and judge whether each should have changed.
+  Record each as `{role, path, ok, note}`: `ok:false` + a `note` for a side that was
+  missed. Then evaluate, don't just display: a genuine missed change is raised as a
+  real **finding** too — add that out-of-PR file as an entry (with a `note` and a
+  `snippet`) carrying a `block`/`high` comment. The seam map shows it; the finding
+  makes it actionable. A seam you confirmed is fine is worth a green site, so the
+  reader sees you checked it.
+- **Blast radius is a checklist you actually work through**, not files you merely
+  grepped. Grep each changed symbol repo-wide; for every file that references it but
+  isn't in the PR, open it and put your verdict in `note` — e.g. "checked —
+  unaffected" vs "MISSED — still reads the old shape". A real miss also becomes a
+  finding. Listing files you didn't open is the anti-pattern this feature exists to
+  kill.
 - **Make referenced files openable without leaving the report.** For a seam site or
   blast-radius file that is NOT in the diff, include a `snippet` (the code you read
   while reviewing — a ~10-30 line window around the relevant line), plus `line` (the

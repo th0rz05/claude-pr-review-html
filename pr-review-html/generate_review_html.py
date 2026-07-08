@@ -38,10 +38,12 @@ review.json schema:
   ],
   "blast_radius": [                                   # OPTIONAL — files that reference a changed symbol but are NOT in the diff.
                                                       # `files` items may be "path" strings or objects that also carry
-                                                      # {"line", "start", "snippet"} — same affordance ladder as seam sites
-                                                      # (contained peek when a snippet is given, else a GitHub link).
+                                                      # {"line", "start", "snippet", "note"} — same affordance ladder as
+                                                      # seam sites (contained peek when a snippet is given, else a GitHub
+                                                      # link). `note` = YOUR verdict after opening it ("checked — unaffected"
+                                                      # / "MISSED — still reads the old shape"), shown next to the file.
     {"symbol": "classify", "files": ["src/api/routes.py",
-                                     {"path": "src/workers/batch.py", "line": 88, "start": 84, "snippet": "..."}]}
+                                     {"path": "src/workers/batch.py", "line": 88, "start": 84, "snippet": "...", "note": "checked — only logs the label"}]}
   ],
   "entries": [                                        # WITHIN a group, array order == reading order
     {
@@ -535,6 +537,7 @@ h3.sec{color:var(--fg);font-size:1.05em;margin:26px 0 4px;letter-spacing:-.01em}
 .blast li{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-sm);padding:9px 14px;font-size:.85em;color:var(--fg-2);box-shadow:var(--shadow)}
 .blast a.blk{font-family:var(--font-mono);color:var(--link);text-decoration:none;border-bottom:1px solid transparent}
 .blast a.blk:hover{border-bottom-color:currentColor}
+.blk-item{display:inline}.blk-note{color:var(--fg-3);font-size:.92em}
 .seam-site.lk{cursor:pointer;text-decoration:none;color:var(--fg-2)}
 .seam-site.lk:hover{border-color:var(--accent-line);color:var(--fg);transform:translateY(-1px)}
 .ext{font-size:.85em;opacity:.55}
@@ -795,11 +798,13 @@ function blastHtml(){
   BLAST.forEach(b=>{
     const files=(b.files||[]).map(x=>{
       const o=(typeof x==='string')?{path:x}:(x||{});const label=(o.path||'')+(o.line?':'+o.line:'');
+      const verdict=o.note?` <span class="blk-note">— ${o.note}</span>`:'';
+      let link;
       if(o.snippet){const enc=peekEnc({path:o.path,line:o.line,start:o.start,snippet:o.snippet,gh:GH(o.path,o.line)});
-        return `<span class="blk pk" data-peek="${enc}">${label}${PEEK}</span>`;}
-      const url=GH(o.path,o.line);
-      return url?`<a class="blk" href="${url}" target="_blank" rel="noopener">${label}${EXT}</a>`:`<code>${label}</code>`;
-    }).join(', ');
+        link=`<span class="blk pk" data-peek="${enc}">${label}${PEEK}</span>`;}
+      else{const url=GH(o.path,o.line);link=url?`<a class="blk" href="${url}" target="_blank" rel="noopener">${label}${EXT}</a>`:`<code>${label}</code>`;}
+      return `<span class="blk-item">${link}${verdict}</span>`;
+    }).join('<span class="blk-sep">, </span>');
     h+=`<li><code>${b.symbol||''}</code> &nbsp;→&nbsp; ${files||'<span style="color:var(--fg-3)">(none)</span>'}</li>`;
   });
   return h+`</ul>`;
