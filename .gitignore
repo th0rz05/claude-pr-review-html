@@ -3,3 +3,6 @@ __pycache__/
 .DS_Store
 pr-review-html.zip
 .claude/
+
+# Local-only: real PR reports (may contain private repo code) — never publish
+examples/reports/
